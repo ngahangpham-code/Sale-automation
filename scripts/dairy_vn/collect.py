@@ -55,11 +55,36 @@ for line in open('hn_ing.tsv',encoding='utf-8'):
     rows.append(dict(company='CTCP Sữa Hà Nội (Hanoimilk)',brand='IZZI' if 'IZZI' in title.upper() else 'Hanoimilk',cat=cat,product=title,
         dtype='Danh sách nguyên liệu (trang sản phẩm)',ing=ing,src=url,decl=best[2] if r>0.55 else 'https://hanoimilk.com/blogs/tong-hop-thong-tin-cong-bo-san-pham',
         note='Hồ sơ công bố đăng dạng file Google Drive trong bài viết.'))
-# Hanoimilk yogurts: only declarations (no product page)
+# Hanoimilk yogurts: declarations on Google Drive, OCR
+man=json.load(open('hn_manual.json',encoding='utf-8'))
+drive=dict(l.rstrip('\n').split('\t') for l in open('hn_drive.tsv',encoding='utf-8') if '\t' in l)
 for c,t,u in decl:
     if c in('sua-chua-an','sua-chua-uong-1'):
+        b=u.rsplit('/',1)[1]; ing=man.get(b,'')
+        if not ing and os.path.exists(f'hnpdf/{b}.ocr.txt'): ing=os.popen(f'python3 -I code/extract.py hnpdf/{b}.ocr.txt').read().strip()
+        ing=clean_dl(ing) if ing else ''
+        for a,z in {'tỉnh luyện':'tinh luyện','tỉnh khiết':'tinh khiết','Streptococus kc':'Streptococcus','Streptococus':'Streptococcus','Strepfococcus':'Streptococcus','bulparicus':'bulgaricus','phẩm mẫu':'phẩm màu','(NS ':'(INS ','vitamin (A, €)':'vitamin (A, C)','chất ồn':'chất ổn','chất ôn':'chất ổn','chất ỗn':'chất ổn'}.items(): ing=ing.replace(a,z)
         rows.append(dict(company='CTCP Sữa Hà Nội (Hanoimilk)',brand='Yotuti' if 'YOTUTI' in t else 'Hanoimilk',cat='Sữa chua ăn' if c=='sua-chua-an' else 'Sữa chua uống',
-          product=t.replace('THÔNG TIN CÔNG BỐ SẢN PHẨM:','').strip(),dtype='Có hồ sơ công bố – chưa trích được',ing='',src=u,decl=u,note='Hồ sơ công bố là file Google Drive nhúng trong bài – mở link để xem thành phần.'))
+          product=t.replace('THÔNG TIN CÔNG BỐ SẢN PHẨM:','').strip(),dtype='Danh sách nguyên liệu (hồ sơ công bố)' if ing else 'Có hồ sơ công bố – chưa trích được',ing=ing,src=u,
+          decl=f'https://drive.google.com/file/d/{drive[b]}/view' if drive.get(b) else u,note='Trích bằng OCR từ hồ sơ công bố (file Google Drive) – nên đối chiếu file gốc.'))
+# ---- Pharmacity: VN-made products with full ingredient lists
+CO={'Công ty Cổ phần Sữa Việt Nam':'CTCP Sữa Việt Nam (Vinamilk)','CÔNG TY TNHH NESTLÉ VIỆT NAM':'Công ty TNHH Nestlé Việt Nam','Công Ty Cổ Phần Sữa Vitadairy Việt Nam':'CTCP VitaDairy Việt Nam','Nhà máy Vitadairy Bình Dương':'CTCP VitaDairy Việt Nam'}
+seen=set()
+for l in open('ph.tsv',encoding='utf-8'):
+    url,title,ing,org,mfr,bo=l.rstrip('\n').split('\t')
+    comp=CO.get(mfr) if org.startswith('Việt Nam') else None
+    if 'TH True Milk' in title: comp='CTCP Sữa TH (TH Group)'
+    if not comp or not ing or title in seen or ing.startswith('Sữa ColosBaby Gold chứa'): continue
+    seen.add(title)
+    ing=re.sub(r'\s*Quy cách\s*:.*$','',ing).strip()
+    ing=re.sub(r'^TH True Milk Sữa Tươi TT ít đường\s*','',ing)
+    brand=next((b for b in ['Optimum Gold','Sure Prevent','Sure Diecerna','MILO','ColosBaby','FOHEPTA','TH true MILK'] if b.lower() in title.lower()),'')
+    cat='Sữa bột trẻ em' if ('cho trẻ' in title or 'Cho Trẻ' in title) else 'Dinh dưỡng y học / người lớn' if 'Sữa bột' in title else 'Sữa nước / thức uống sữa'
+    rows.append(dict(company=comp,brand=brand,cat=cat,product=title,dtype='Danh sách nguyên liệu (nhà bán lẻ Pharmacity)',ing=ing,src=url,decl='',
+        note=('Pharmacity ghi nơi sản xuất: Việt Nam. ' if org else '')+('Danh sách bị cắt ngắn trên trang (kết thúc bằng "...").' if ing.endswith('...') else '')))
+# ---- other retailer / association sources found via web search
+for c,b,cat,pr,dt,ing,src,note in json.load(open('extra.json',encoding='utf-8')):
+    rows.append(dict(company=c,brand=b,cat=cat,product=pr,dtype=dt,ing=ing,src=src,decl='',note=note))
 # ---- Nutifood & Vitadairy (nutrition-table actives)
 def nut(file,company,brandf,catf):
     out=[]
@@ -107,7 +132,7 @@ blocked=[
  ('CTCP Nutricare','Metacare, Glucare Gold, Nutricare Gold, Smarta IQ, Care 100','Sữa bột / dinh dưỡng y học, sữa nước'),
 ]
 for c,b,cat in blocked:
-    rows.append(dict(company=c,brand=b,cat=cat,product='(Danh mục thương hiệu – chưa liệt kê SKU)',dtype='Chưa truy cập được website',ing='',src='',decl='',note='Website chặn truy cập tự động từ môi trường cloud – cần mở trên máy của bạn.'))
+    rows.append(dict(company=c,brand=b,cat=cat,product='(Các SKU khác của nhóm thương hiệu – chưa lấy được thành phần)',dtype='Chưa truy cập được website',ing='',src='',decl='',note='Website chặn truy cập tự động từ môi trường cloud – cần mở trên máy của bạn.'))
 # Vinamilk partial from web search
 rows.append(dict(company='CTCP Sữa Việt Nam (Vinamilk)',brand='Vinamilk',cat='Sữa nước (UHT)',product='Sữa tươi tiệt trùng giảm béo hương chuối',dtype='Danh sách nguyên liệu (trích một phần, qua kết quả tìm kiếm)',
     ing='Sữa tươi tách béo (95,9%), đường, nước chuối ép cô đặc (10 g/l), … (chưa đầy đủ)',src='https://www.vinamilk.com.vn/cong-bo-san-pham/',decl='https://www.vinamilk.com.vn/cong-bo-san-pham/',
